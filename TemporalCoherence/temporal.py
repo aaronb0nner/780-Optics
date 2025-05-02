@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 
 # List of .tiff file paths
 tiff_files = [
-    "./TemporalCoherance/class_data/Seperate_spots_0.5ms_Gain0_offset_54.tif",
-    "./TemporalCoherance/class_data/Seperate_spots_1ms_Gain0_offset_54.tif",
-    "./TemporalCoherance/class_data/combined_better.tif"
+    "./TemporalCoherence/class_data/Seperate_spots_0.5ms_Gain0_offset_54.tif",
+    "./TemporalCoherence/class_data/Seperate_spots_1ms_Gain0_offset_54.tif",
+    "./TemporalCoherence/class_data/combined_better.tif"
 ]
 
 # Function to decompose a .tif file into individual frames
