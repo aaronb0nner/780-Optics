@@ -1,0 +1,1 @@
+scp -r raspberry@192.168.0.124:/home/raspberry/Documents/programs/phaseRetrival/test0 "C:\Users\zoobi\Documents Local\AFIT\Repos\780-Optics\PhaseRetrival"
