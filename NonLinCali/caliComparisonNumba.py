@@ -41,8 +41,6 @@ if show_images:
     plt.imshow(moon1ms[0], cmap='gray')
     plt.title('moon1ms (First frame)')
     plt.axis('off')
-
-    # Add red rectangle for region: x: 300:800, y: 1300:1800
     rect = patches.Rectangle(
         (300, 1300),  # (x, y)
         800 - 300,    # width
@@ -57,7 +55,6 @@ if show_images:
     plt.show()
 
 # Use only the region far from the moon for offset calculation
-# x: 300:800, y: 1300:1800 (assuming shape is [frames, height, width])
 moon_region = moon1ms[:, 1300:1800, 300:800]
 offset = np.mean(moon_region, axis=(0, 1, 2))  # Average over all frames and region
 
@@ -200,7 +197,7 @@ print(f"The K value is {K_nls:.3f} photons\n")
 aperture_diameter_m = 0.07             # 7 cm
 aperture_area_m2 = np.pi * (aperture_diameter_m / 2)**2  # m²
 pixel_size_m = 3.5e-6                  # 3.5 µm
-wavelength_m = 500e-9                  # Assume green light center wavelength
+wavelength_m = 500e-9                  # Approxiamte for sun emission (500 nm)
 photon_energy_joules = (6.626e-34 * 3e8) / wavelength_m  # E = hc/λ
 
 # Convert total photon counts to radiant power
