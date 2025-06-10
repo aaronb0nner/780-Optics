@@ -132,29 +132,30 @@ moon_polar = warp_polar(moon_mag, center=center_coords, scaling='log')
 starry_polar = warp_polar(starry_mag, center=center_coords, scaling='log')
 
 # Register log-polar images to estimate scale and rotation
-polar_shift, polar_error, _ = phase_cross_correlation(moon_polar, starry_polar, upsample_factor=10)
+polar_shift, polar_error, _ = phase_cross_correlation(starry_polar, moon_polar, upsample_factor=10)
 scale_log_shift, rot_shift = polar_shift
 
 # Calculate rotation in degrees
 angle_bins = moon_polar.shape[1]
-rotation_deg = (rot_shift / angle_bins) * 360
+rotation_deg = -(rot_shift / angle_bins) * 360
 
 # Calculate scaling factor
 log_base = np.exp(np.log(target_height / 2) / moon_polar.shape[0])
 scale_factor = log_base ** scale_log_shift
 
-# Rescale and rotate the Starry Night image
-starry_scaled = rescale(starry_padded, 1/scale_factor, anti_aliasing=True, preserve_range=True)
-starry_rotated = rotate(starry_scaled, -rotation_deg, resize=False, preserve_range=True)
+# Rescale and rotate the moon image
+moon_scaled = rescale(moon_averaged, 1/scale_factor, anti_aliasing=True, preserve_range=True)
+moon_rotated = rotate(moon_scaled, -rotation_deg, resize=False, preserve_range=True)
 
-# Register translation between Moon and aligned Starry Night
-trans_shift, trans_error, _ = phase_cross_correlation(moon_averaged, starry_rotated, upsample_factor=10)
+# Register translation between aligned Moon and Starry Night
+trans_shift, trans_error, _ = phase_cross_correlation(starry_padded, moon_rotated, upsample_factor=10)
 dy, dx = trans_shift
 
-# Apply translation using Fourier shift
-starry_registered = np.fft.ifftn(
-    fourier_shift(np.fft.fftn(starry_rotated), shift=(dy, dx))
+# Apply translation to moon
+moon_registered = np.fft.ifftn(
+    fourier_shift(np.fft.fftn(moon_rotated), shift=(dy, dx))
 ).real
+
 
 # Output registration parameters
 print("Registration Results:")
@@ -166,13 +167,13 @@ print(f"  - Y Translation: {dy:.2f} px")
 
 plt.figure(figsize=(12, 6))
 plt.subplot(1, 2, 1)
-plt.imshow(moon_averaged, cmap='gray')
-plt.title("Moon Reference")
+plt.imshow(moon_registered, cmap='gray')
+plt.title("Moon Registered")
 plt.axis('off')
 
 plt.subplot(1, 2, 2)
-plt.imshow(starry_registered, cmap='gray')
-plt.title("Registered Starry Night")
+plt.imshow(starry_padded, cmap='gray')
+plt.title("Starry Night")
 plt.axis('off')
 plt.tight_layout()
 plt.show()
