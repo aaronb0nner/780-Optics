@@ -67,127 +67,128 @@ def nls_nuc(data1, data2):
     import numpy as np
 
 def nls_nuc(data1, data2, N1, N2, offset):
-    """
-    Non‐Linear Statistical Non‐Uniformity Correction (NLSNUC), implemented per‐pixel.
+    # Subtract offset from both datasets
+    data1_corr = data1 - offset
+    data2_corr = data2 - offset
 
-    Inputs:
-      - data1: numpy array of shape (M, H, W) taken at integration time N1 (e.g. 1000 ms).
-      - data2: numpy array of shape (M, H, W) taken at integration time N2 (e.g. 2000 ms).
-      - N1, N2: the two integration‐time factors (scalars).
-      - offset: scalar O (digital‐count offset), precomputed as the mean over a dark region.
+    # Compute mean and variance for each pixel
+    mu1 = np.mean(data1_corr, axis=0)
+    mu2 = np.mean(data2_corr, axis=0)
+    
+    # Step 3: Estimate g_hat(x,y) using positive exponent model from the paper
 
-    Returns:
-      - alpha_median: median of alpha(x,y) over all pixels.
-      - K_sum: sum of K̂(x,y) over all pixels (the total estimated electrons at N1).
-    """
-    # 1) Compute per‐pixel means over frames:
-    #    Each of shape (M, H, W) → mean over axis=0 → shape (H, W)
-    mu1 = np.mean(data1, axis=0)  # E[D₁(x,y)]
-    mu2 = np.mean(data2, axis=0)  # E[D₂(x,y)]
+    # Compute ratio of means
+    eps = 1e-12  # To prevent division by zero
+    mu1_safe = np.where(mu1 <= 0, eps, mu1)
+    ratio = mu2 / mu1_safe  # shape (H, W)
 
-    # 2) Subtract offset before forming ratios.
-    #    We assume (mu1 - offset) > 0 and (mu2 - offset) > 0 for illuminated pixels.
-    s1 = mu1 - offset
-    s2 = mu2 - offset
+    # Integration time ratio
+    N = N2 / N1  # e.g., 2 if 2000ms / 1000ms
 
-    # Avoid division by zero / negative values in dark pixels:
-    #   Wherever s1 <= 0, force a tiny epsilon so we don’t blow up.
-    eps = 1e-12
-    s1 = np.where(s1 <= 0, eps, s1)
-    s2 = np.where(s2 <  0, 0.0, s2)
+    # Search space for g values
+    num_g = 100000  # or 1_000_000 if you want more resolution
+    g_vals = np.linspace(1e-6, 1.0, num_g)  # shape (num_g,)
 
-    # 3) Pixel‐wise ratio r(x,y) = (mu2 – O) / (mu1 – O)
-    ratio = s2 / s1  # shape (H, W)
+    # Precompute model ratios using positive exponent (as per paper)
+    num = 1 - np.exp(N * g_vals)
+    den = 1 - np.exp(g_vals)
+    model_ratios = num / den  # shape (num_g,)
 
-    H, W = mu1.shape
-    N = float(N2) / float(N1)
-
-    # 4) Precompute a large 1D array of candidate g‐values from 1e-6 to 1.0 (step = 1e-6).
-    #    (You can adjust the range/resolution if this is too slow/large.)
-    num_g = int(1e6)  # one million steps
-    g_vals = np.linspace(1e-6, 1.0, num_g)  # shape (1e6,)
-
-    # In “ideal NLSNUC” we solve: (1 - exp(-N·g)) / (1 - exp(-g)) = r.  So build that once:
-    #    model_ratios[i] = (1 - e^{ - (N * g_vals[i]) }) / (1 - e^{ - g_vals[i] })
-    exp_neg_g = np.exp(-g_vals)               # shape (num_g,)
-    exp_neg_Ng = np.exp(-N * g_vals)          # shape (num_g,)
-    model_ratios = (1.0 - exp_neg_Ng) / (1.0 - exp_neg_g)  # shape (num_g,)
-
-    # 5) For each pixel (i,j), find index k that minimises [ratio[i,j] - model_ratios[k]]^2.
-    #    g_hat(i,j) = g_vals[argmin_k].
-    g_hat = np.zeros((H, W), dtype=np.float64)
-
-    # Flatten for iteration, then reshape back.
-    ratio_flat = ratio.ravel()   # shape (H*W,)
+    # Flatten ratio for pixel-wise search
+    H, W = ratio.shape
+    ratio_flat = ratio.ravel()
     g_hat_flat = np.zeros_like(ratio_flat)
 
+    # Search per pixel
     for idx, r_val in enumerate(ratio_flat):
-        # If r_val is zero (or negative), we can clamp g_hat=0 (no signal).  Otherwise, search:
         if r_val <= 0:
             g_hat_flat[idx] = 0.0
         else:
-            # compute squared error against all model_ratios
             err = (model_ratios - r_val) ** 2
             best_k = np.argmin(err)
             g_hat_flat[idx] = g_vals[best_k]
-        # end if
-    # end for
 
-    g_hat = g_hat_flat.reshape(H, W)  # Now shape (H, W)
+    # Reshape back to (H, W)
+    g_hat = g_hat_flat.reshape(H, W)
 
-    # 6) Compute per‐pixel saturation constant:
-    #     C(x,y) = (mu1(x,y) - offset) / [1 - exp(-g_hat(x,y))]
-    denom = 1.0 - np.exp(-g_hat)
-    # Avoid zero‐division (if g_hat was 0, set denom→eps)
-    denom = np.where(denom <= 0, eps, denom)
-    C = s1 / denom   # shape (H, W)
+    # Step 4: Compute C(x,y)
 
-    # 7) Transform each frame of data1 & data2 into “H‐space”:
-    #    H1(m, x, y) = -ln[ 1 - (D1(m, x, y) - O) / C(x,y) ]  (for m=0..M-1)
-    #    H2(m, x, y) = -ln[ 1 - (D2(m, x, y) - O) / C(x,y) ]
+    # Use positive exponent (paper says 1 - exp(+g), not negative!)
+    denom = 1.0 - np.exp(g_hat)
 
-    # To broadcast C across the first (frame) dimension, we do: (data1 - O) / C  → shape (M, H, W)
-    #   but ensure no out‐of‐range (clamp inside [0,1-eps]).
-    D1_off = data1 - offset
-    D2_off = data2 - offset
+    # Avoid divide-by-zero
+    eps = 1e-12
+    denom_safe = np.where(np.abs(denom) < eps, eps, denom)
 
-    # Clip (D - O)/C to [0, 1 - eps] so that log(1 - x) never sees x ≥ 1.
-    ratio1 = D1_off[..., None] / C  # temporarily shape (M, H, W) if broadcasting is done carefully
-    ratio2 = D2_off[..., None] / C
+    # Compute C(x,y)
+    C = mu1 / denom_safe  # shape (H, W)
 
-    # Actually, easiest is to subtract offset and then divide by C per‐pixel:
-    #    (data1 - offset) is (M,H,W), C is (H,W) → the “/ C” line broadcasts automatically
-    H1 = -np.log( np.clip(1.0 - (data1 - offset) / C, 0.0, 1.0 - eps) )
-    H2 = -np.log( np.clip(1.0 - (data2 - offset) / C, 0.0, 1.0 - eps) )
-    # Both H1, H2 are shape (M, H, W).
+    # Step 5: Transform each frame to H-space
 
-    # 8) Compute per‐pixel mean and variance across frames m=0..M-1:
-    h1_mean = np.mean(H1, axis=0)   # shape (H, W)
+    # Ensure C has no zeros (clamp small values)
+    eps = 1e-12
+    C_safe = np.where(C <= 0, eps, C)
+
+    # Normalize each frame by C(x,y)
+    data1_norm = data1_corr / C_safe  # shape (M, H, W)
+    data2_norm = data2_corr / C_safe
+
+    # Clamp values to [0, 1 - eps] to avoid log(0) or log(negative)
+    data1_clipped = np.clip(1.0 - data1_norm, eps, 1.0)
+    data2_clipped = np.clip(1.0 - data2_norm, eps, 1.0)
+
+    # Take negative log
+    H1 = -np.log(data1_clipped)  # shape (M, H, W)
+    H2 = -np.log(data2_clipped)
+
+    # Step 6: Compute per-pixel mean and variance of H1 and H2
+
+    # Mean over frames (axis=0)
+    h1_mean = np.mean(H1, axis=0)  # shape = (H, W)
     h2_mean = np.mean(H2, axis=0)
 
-    h1_var  = np.var(H1, axis=0)    # shape (H, W)
-    h2_var  = np.var(H2, axis=0)
+    # Variance over frames
+    h1_var = np.var(H1, axis=0)    # shape = (H, W)
+    h2_var = np.var(H2, axis=0)
 
-    # 9) Solve for alpha(x,y):
-    #    α(x,y) = [h2_var(x,y) - h1_var(x,y)] / [h2_mean(x,y) - h1_mean(x,y)]
-    num = (h2_var - h1_var)
-    den = (h2_mean - h1_mean)
-    # Avoid division by zero:
-    alpha = np.where(np.abs(den) <= eps, 0.0, num / den)
+    # Step 7: Compute alpha(x,y) and K_hat(x,y)
 
-    # 10) Pixel‐wise photon‐count at N1: K_hat(x,y) = h1_mean(x,y) / α(x,y)
-    K_hat = np.where(np.abs(alpha) <= eps, 0.0, h1_mean / alpha)
+    # Avoid divide-by-zero in denominator
+    eps = 1e-12
+    denominator = h2_mean - h1_mean
+    denominator_safe = np.where(np.abs(denominator) < eps, eps, denominator)
 
-    # 11) Summarize: return median α and total sum of K̂
+    # Compute alpha
+    alpha = (h2_var - h1_var) / denominator_safe  # shape = (H, W)
+
+    # Avoid divide-by-zero again when computing K_hat
+    alpha_safe = np.where(np.abs(alpha) < eps, eps, alpha)
+
+    # Compute estimated photon count at N1
+    K_hat = h1_mean / alpha_safe  # shape = (H, W)
+
+    # Step 8: Reduce to summary values
+
+    # Filter out invalid/zero/negative alpha values
     alpha_flat = alpha.ravel()
-    # Only take the positive α values (ignore any zero/negative outliers in “dark” pixels)
-    alpha_pos = alpha_flat[ alpha_flat > 0 ]
-    if alpha_pos.size == 0:
+    valid_alpha = alpha_flat[alpha_flat > 0]
+
+    if valid_alpha.size == 0:
         alpha_median = 0.0
     else:
-        alpha_median = np.median(alpha_pos)
+        alpha_median = np.median(valid_alpha)
 
+    # Photon count summaries
     K_sum = np.sum(K_hat)
+    K_mean = np.mean(K_hat)
+
+    # print(f"Final median α: {alpha_median:.6f}")
+    # print(f"Total photon count (sum): {K_sum:.2f}")
+    # print(f"Mean photon count per pixel: {K_mean:.2f}")
+
+    
+
+
 
     return alpha_median, K_sum
 
