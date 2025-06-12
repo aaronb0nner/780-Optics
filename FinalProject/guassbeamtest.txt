@@ -1,0 +1,4 @@
+PS C:\Users\Aaron\Documents\AFIT\780-Optics> & "C:/Program Files/Python312/python.exe" c:/Users/Aaron/Documents/AFIT/780-Optics/NonLinCali/handPowerTest.py
+Total beam power: 2.500 mW
+Power captured by sensor: 0.019 mW
+Percentage captured: 0.74%

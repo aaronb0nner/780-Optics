@@ -4,7 +4,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 
 # Define the folder names
-folders = ["rotation2_0", "rotation2_45", "rotation2_90", "rotation2_noLens", "rotation2_noLensHalfX",]
+folders = ["Polarization/rotation2_0", "Polarization/rotation2_45", "Polarization/rotation2_90", "Polarization/rotation2_noLens", "Polarization/rotation2_noLensHalfX",]
 
 # Initialize variables for each folder
 rotation_0_data = None
